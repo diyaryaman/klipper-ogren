@@ -1,0 +1,45 @@
+name: iPhone uygulamasını derle (.ipa)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen kur
+        run: brew install xcodegen
+
+      - name: Xcode projesini oluştur
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Derle (imzasız, Sideloadly imzalayacak)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project KlipperOgren.xcodeproj -scheme KlipperOgren \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -40
+          test -d build/Build/Products/Release-iphoneos/KlipperOgren.app
+
+      - name: .ipa dosyasını paketle
+        working-directory: ios
+        run: |
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/KlipperOgren.app Payload/
+          zip -qry KlipperOgren.ipa Payload
+          ls -lh KlipperOgren.ipa
+
+      - name: .ipa'yı yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: KlipperOgren-ipa
+          path: ios/KlipperOgren.ipa
+          retention-days: 30
