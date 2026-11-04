@@ -2,9 +2,41 @@
 (function () {
   'use strict';
 
+  // ---------- Durum (önce yüklenir; dil seçimi buna bağlı) ----------
+  var KEY = 'klipper-ogren-v1';
+  var NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
+  function fresh() {
+    return { v: 2, lang: 'tr', xp: 0, streak: 0, best: 0, lastDay: null, daily: { day: null, xp: 0 }, goal: 50, done: {}, srs: {},
+      stats: { answered: 0, correct: 0, lessons: 0, reviews: 0, reviewQs: 0, typed: 0, perfect: 0 },
+      news: { seen: null, cache: null }, spools: 0, freezes: 0, quests: null, badges: {}, sound: true, chests: {}, bestCombo: 0, savedAt: 0 };
+  }
+  function parse(raw) { try { return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
+  function load() {
+    var a = null, b = null;
+    try { if (typeof window.__NATIVE_STATE__ === 'string') a = parse(window.__NATIVE_STATE__); } catch (e) {}
+    try { b = parse(localStorage.getItem(KEY)); } catch (e) {}
+    var p = (a && b) ? ((a.savedAt || 0) >= (b.savedAt || 0) ? a : b) : (a || b);
+    var s = fresh();
+    if (p) { for (var k in p) if (k !== 'stats') s[k] = p[k]; if (p.stats) for (var j in p.stats) s.stats[j] = p.stats[j]; }
+    return s;
+  }
+  var S = load();
+  var LANG = S.lang === 'en' ? 'en' : 'tr';
+  var I18N = window.I18N_EN || {};
+  function pct(n) { return LANG === 'en' ? n + '%' : '%' + n; }
+  function T(s) { return LANG === 'en' && I18N[s] != null ? I18N[s] : s; }
+  try { document.documentElement.lang = LANG; document.title = LANG === 'en' ? 'Klipper Learn' : 'Klipper Öğren'; } catch (e) {}
+
   // ---------- Veri ----------
-  var UNITS = window.KLIPPER_UNITS || [];
+  var UNITS = (LANG === 'en' && window.KLIPPER_UNITS_EN) ? window.KLIPPER_UNITS_EN : (window.KLIPPER_UNITS || []);
   var REF = window.KLIPPER_REF || [];
+  if (LANG === 'en' && window.KLIPPER_REF_EN) {
+    var RE = window.KLIPPER_REF_EN;
+    REF = REF.map(function (r) {
+      return { c: r.c, l: r.l, d: RE.d[r.c] || r.d, k: RE.cats[r.k] || r.k,
+        s: r.s.replace(/<ad>/g, '<name>').replace(/<sn>/g, '<sec>').replace(/<değer/g, '<value') };
+    });
+  }
   var SNAP = window.KLIPPER_SNAPSHOT || { date: '', commands: [] };
   var DOC = 'https://www.klipper3d.org/';
   var RAW = 'https://raw.githubusercontent.com/Klipper3d/klipper/master/docs/';
@@ -22,28 +54,12 @@
   var REF_BY_CMD = {}; REF.forEach(function (r) { REF_BY_CMD[r.c] = r; });
 
   // ---------- Yerel köprü ----------
-  var NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
   function post(m) { try { if (NATIVE) window.webkit.messageHandlers.native.postMessage(m); } catch (e) {} }
   function haptic(s) { if (NATIVE) post({ type: 'haptic', style: s }); else if (navigator.vibrate) { try { navigator.vibrate(s === 'error' ? [30, 40, 30] : 10); } catch (e) {} } }
   function openUrl(u) { if (NATIVE) post({ type: 'open', url: u }); else window.open(u, '_blank', 'noopener'); }
 
-  // ---------- Durum ----------
-  var KEY = 'klipper-ogren-v1';
-  function fresh() {
-    return { v: 2, xp: 0, streak: 0, best: 0, lastDay: null, daily: { day: null, xp: 0 }, goal: 50, done: {}, srs: {},
-      stats: { answered: 0, correct: 0, lessons: 0, reviews: 0, reviewQs: 0, typed: 0, perfect: 0 },
-      news: { seen: null, cache: null }, spools: 0, freezes: 0, quests: null, badges: {}, sound: true, chests: {}, bestCombo: 0 };
-  }
-  function load() {
-    var raw = null;
-    try { if (typeof window.__NATIVE_STATE__ === 'string' && window.__NATIVE_STATE__) raw = window.__NATIVE_STATE__; } catch (e) {}
-    if (!raw) { try { raw = localStorage.getItem(KEY); } catch (e) {} }
-    var s = fresh();
-    if (raw) { try { var p = JSON.parse(raw); for (var k in p) if (k !== 'stats') s[k] = p[k]; if (p.stats) for (var j in p.stats) s.stats[j] = p.stats[j]; } catch (e) {} }
-    return s;
-  }
-  var S = load();
-  function save() { var str = JSON.stringify(S); try { localStorage.setItem(KEY, str); } catch (e) {} post({ type: 'save', data: str }); }
+  // ---------- Kayıt ----------
+  function save() { S.savedAt = Date.now(); var str = JSON.stringify(S); try { localStorage.setItem(KEY, str); } catch (e) {} post({ type: 'save', data: str }); }
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function dayKey(t) { var d = t ? new Date(t) : new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -59,7 +75,7 @@
     if (S.lastDay !== t) {
       var gap = S.lastDay ? daysBetween(S.lastDay, t) : 99;
       if (gap === 1) S.streak++;
-      else if (gap > 1 && gap - 1 <= S.freezes && S.streak > 0) { S.freezes -= gap - 1; S.streak++; toast('🧊', 'Seri koruyucu serini kurtardı!'); }
+      else if (gap > 1 && gap - 1 <= S.freezes && S.streak > 0) { S.freezes -= gap - 1; S.streak++; toast('🧊', T('Seri koruyucu serini kurtardı!')); }
       else S.streak = 1;
       S.lastDay = t; grew = true;
     }
@@ -73,7 +89,7 @@
     var lo = 50 * L * (L - 1), hi = 50 * (L + 1) * L;
     return { L: L, p: (xp - lo) / (hi - lo), need: hi - xp };
   }
-  var TITLES = ['Çırak', 'Çırak', 'Kurulumcu', 'Kalibratör', 'Teknisyen', 'Teknisyen', 'Makro Ustası', 'Ayar Ustası', 'Klipper Ustası'];
+  var TITLES = [T('Çırak'), T('Çırak'), T('Kurulumcu'), T('Kalibratör'), T('Teknisyen'), T('Teknisyen'), T('Makro Ustası'), T('Ayar Ustası'), T('Klipper Ustası')];
 
   // ---------- Aralıklı tekrar ----------
   function grade(id, ok) {
@@ -96,12 +112,12 @@
 
   // ---------- Günlük görevler ----------
   var QPOOL = {
-    xp: { ic: '⚡', t: function (g) { return g + ' XP kazan'; } },
-    lesson: { ic: '📘', g: 2, t: function (g) { return g + ' ders bitir'; } },
-    combo: { ic: '🔥', g: 5, t: function (g) { return g + ' soruyu üst üste doğru bil'; } },
-    review: { ic: '🧠', g: 8, t: function (g) { return g + ' tekrar sorusu çöz'; } },
-    perfect: { ic: '🏆', g: 1, t: function () { return 'Bir dersi hatasız bitir'; } },
-    typed: { ic: '⌨️', g: 2, t: function (g) { return g + ' yazma sorusunu doğru yaz'; } }
+    xp: { ic: '⚡', t: function (g) { return LANG === 'en' ? 'Earn ' + g + ' XP' : g + ' XP kazan'; } },
+    lesson: { ic: '📘', g: 2, t: function (g) { return LANG === 'en' ? 'Finish ' + g + ' lessons' : g + ' ders bitir'; } },
+    combo: { ic: '🔥', g: 5, t: function (g) { return LANG === 'en' ? 'Get ' + g + ' right in a row' : g + ' soruyu üst üste doğru bil'; } },
+    review: { ic: '🧠', g: 8, t: function (g) { return LANG === 'en' ? 'Answer ' + g + ' review questions' : g + ' tekrar sorusu çöz'; } },
+    perfect: { ic: '🏆', g: 1, t: function () { return T('Bir dersi hatasız bitir'); } },
+    typed: { ic: '⌨️', g: 2, t: function (g) { return LANG === 'en' ? 'Type ' + g + ' answers correctly' : g + ' yazma sorusunu doğru yaz'; } }
   };
   function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
   function ensureQuests() {
@@ -115,18 +131,18 @@
 
   // ---------- Rozetler ----------
   var BADGES = [
-    { id: 'first', ic: '🥇', c: '#ffc53d', n: 'İlk katman', d: 'İlk dersi bitir', ok: function () { return S.stats.lessons >= 1; } },
-    { id: 'perfect', ic: '💎', c: '#4ea1ff', n: 'Kusursuz', d: 'Bir dersi hatasız bitir', ok: function () { return S.stats.perfect >= 1; } },
-    { id: 's3', ic: '🔥', c: '#ff8a3d', n: 'Isınıyor', d: '3 günlük seri', ok: function () { return S.best >= 3; } },
-    { id: 's7', ic: '☄️', c: '#ff5a5f', n: 'Bir hafta', d: '7 günlük seri', ok: function () { return S.best >= 7; } },
-    { id: 's30', ic: '🌋', c: '#dc2626', n: 'Durdurulamaz', d: '30 günlük seri', ok: function () { return S.best >= 30; } },
-    { id: 'combo10', ic: '⚡', c: '#a78bfa', n: 'Zincir', d: '10 soruyu üst üste bil', ok: function () { return S.bestCombo >= 10; } },
-    { id: 'unit', ic: '🧱', c: '#3ddc84', n: 'İlk baskı', d: 'Bir üniteyi bitir', ok: function () { return UNITS.some(unitDone); } },
-    { id: 'memory', ic: '🧠', c: '#ff6fb1', n: 'Hafıza', d: '50 tekrar sorusu çöz', ok: function () { return S.stats.reviewQs >= 50; } },
-    { id: 'macro', ic: '🧩', c: '#eab308', n: 'Makrocu', d: 'Makrolar ünitesini bitir', ok: function () { return unitDone(UNITS[6]); } },
-    { id: 'tech', ic: '🚨', c: '#ef4444', n: 'Teknisyen', d: 'Arıza Vakaları ünitesini bitir', ok: function () { return unitDone(UNITS[UNITS.length - 1]); } },
-    { id: 'xp1000', ic: '🏅', c: '#14b8a6', n: '1000 XP', d: 'Toplam 1000 XP topla', ok: function () { return S.xp >= 1000; } },
-    { id: 'master', ic: '👑', c: '#ffc53d', n: 'Klipper Ustası', d: 'Bütün dersleri bitir', ok: function () { return LESSONS.every(function (l) { return S.done[l.id]; }); } }
+    { id: 'first', ic: '🥇', c: '#ffc53d', n: T('İlk katman'), d: T('İlk dersi bitir'), ok: function () { return S.stats.lessons >= 1; } },
+    { id: 'perfect', ic: '💎', c: '#4ea1ff', n: T('Kusursuz'), d: T('Bir dersi hatasız bitir'), ok: function () { return S.stats.perfect >= 1; } },
+    { id: 's3', ic: '🔥', c: '#ff8a3d', n: T('Isınıyor'), d: T('3 günlük seri'), ok: function () { return S.best >= 3; } },
+    { id: 's7', ic: '☄️', c: '#ff5a5f', n: T('Bir hafta'), d: T('7 günlük seri'), ok: function () { return S.best >= 7; } },
+    { id: 's30', ic: '🌋', c: '#dc2626', n: T('Durdurulamaz'), d: T('30 günlük seri'), ok: function () { return S.best >= 30; } },
+    { id: 'combo10', ic: '⚡', c: '#a78bfa', n: T('Zincir'), d: T('10 soruyu üst üste bil'), ok: function () { return S.bestCombo >= 10; } },
+    { id: 'unit', ic: '🧱', c: '#3ddc84', n: T('İlk baskı'), d: T('Bir üniteyi bitir'), ok: function () { return UNITS.some(unitDone); } },
+    { id: 'memory', ic: '🧠', c: '#ff6fb1', n: T('Hafıza'), d: T('50 tekrar sorusu çöz'), ok: function () { return S.stats.reviewQs >= 50; } },
+    { id: 'macro', ic: '🧩', c: '#eab308', n: T('Makrocu'), d: T('Makrolar ünitesini bitir'), ok: function () { return unitDone(UNITS[6]); } },
+    { id: 'tech', ic: '🚨', c: '#ef4444', n: T('Teknisyen'), d: T('Arıza Vakaları ünitesini bitir'), ok: function () { return unitDone(UNITS[UNITS.length - 1]); } },
+    { id: 'xp1000', ic: '🏅', c: '#14b8a6', n: '1000 XP', d: T('Toplam 1000 XP topla'), ok: function () { return S.xp >= 1000; } },
+    { id: 'master', ic: '👑', c: '#ffc53d', n: T('Klipper Ustası'), d: T('Bütün dersleri bitir'), ok: function () { return LESSONS.every(function (l) { return S.done[l.id]; }); } }
   ];
   function checkBadges() {
     var got = [];
@@ -183,11 +199,11 @@
     return h + (com ? '<span class="c">' + esc(com) + '</span>' : '');
   }
   function codeLabel(code) {
-    if (/\{%|\{ /.test(code) && /gcode_macro|params|printer\./.test(code)) return '🧩 Makro';
+    if (/\{%|\{ /.test(code) && /gcode_macro|params|printer\./.test(code)) return T('🧩 Makro');
     if (/^\s*\[[a-z_]/m.test(code) || /^[a-z_]+:\s/m.test(code)) return '📄 printer.cfg';
     if (/^(cd |make|sudo|ls |~\/|git |#\s*\/etc)/m.test(code)) return '💻 Terminal (SSH)';
-    if (/^;/m.test(code)) return '🔪 Dilimleyici';
-    return '⌨️ Konsol';
+    if (/^;/m.test(code)) return T('🔪 Dilimleyici');
+    return T('⌨️ Konsol');
   }
   function codeHtml(code, blankHtml) {
     var lines = code.split('\n').map(function (ln) {
@@ -201,11 +217,11 @@
       var c = /^!!/.test(l) ? 'err' : /^\/\//.test(l) ? 'info' : /^>/.test(l) ? 'cmd' : '';
       return c ? '<span class="' + c + '">' + esc(l) + '</span>' : esc(l);
     });
-    return '<div class="code console"><div class="ch"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>&nbsp;🖥️ Mainsail konsolu</div><pre>' + lines.join('\n') + '</pre></div>';
+    return T('<div class="code console"><div class="ch"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>&nbsp;🖥️ Mainsail konsolu</div><pre>') + lines.join('\n') + '</pre></div>';
   }
   function inlineMd(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1'); }
   function fmtDate8(d) { return d.slice(6, 8) + '.' + d.slice(4, 6) + '.' + d.slice(0, 4); }
-  function ago(ts) { var m = Math.round((Date.now() - ts) / 60000); if (m < 1) return 'az önce'; if (m < 60) return m + ' dk önce'; var h = Math.round(m / 60); if (h < 24) return h + ' sa önce'; return Math.round(h / 24) + ' gün önce'; }
+  function ago(ts) { var m = Math.round((Date.now() - ts) / 60000); if (m < 1) return T('az önce'); if (m < 60) return m + T(' dk önce'); var h = Math.round(m / 60); if (h < 24) return h + T(' sa önce'); return Math.round(h / 24) + T(' gün önce'); }
   function isUnlocked(l) { return l.gi === 0 || !!S.done[LESSONS[l.gi - 1].id] || !!S.done[l.id]; }
   function stars(lid) { var d = S.done[lid]; if (!d) return 0; return d.best >= 0.95 ? 3 : d.best >= 0.75 ? 2 : 1; }
   function unitDone(u) { return u && u.lessons.every(function (l) { return S.done[l.id]; }); }
@@ -314,7 +330,7 @@
     UI.bump = null;
     html += '<div class="screen' + (enter ? ' enter' : '') + '" id="scr">' + screenHtml() + '</div>';
     var nb = unseenCount(), qr = readyQuests();
-    var tabs = [['path', '🏠', 'Yol', qr], ['review', '🧠', 'Tekrar', due], ['news', '📰', 'Yenilikler', nb], ['ref', '📖', 'Rehber', 0], ['me', '🧑‍🔧', 'Profil', 0]];
+    var tabs = [['path', '🏠', T('Yol'), qr], ['review', '🧠', T('Tekrar'), due], ['news', '📰', T('Yenilikler'), nb], ['ref', '📖', T('Rehber'), 0], ['me', '🧑‍🔧', T('Profil'), 0]];
     html += '<nav class="tabbar">' + tabs.map(function (t) {
       return '<button class="tab' + (UI.tab === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '"><span class="ic">' + t[1] + '</span>' + t[2] +
         (t[3] ? '<span class="badge">' + (t[3] > 99 ? '99+' : t[3]) + '</span>' : '') + '</button>';
@@ -332,18 +348,18 @@
   // ---------- Yol ----------
   function greeting() {
     var tx = todayXp(), due = dueIds().length;
-    if (!S.stats.lessons) return ['Selam! Ben <b>Nozi</b> 👋', 'Klipper\'ı birlikte katman katman öğreneceğiz. İlk dersle başlayalım mı?'];
-    if (due >= 5) return ['Bazı bilgiler soğumaya başladı 🥶', due + ' soru tekrar bekliyor. Unutmadan ısıtalım!'];
-    if (tx >= S.goal) return ['Bugünkü hedef tamam! 🎉', 'Seri ' + curStreak() + ' gün. İstersen bir ders daha basalım.'];
-    if (S.lastDay !== dayKey() && S.streak > 0) return ['Serin tehlikede! 🔥', 'Bugün bir ders bitir, ' + S.streak + ' günlük seri devam etsin.'];
-    return ['Hadi, nozul ısındı! 🔥', 'Günlük hedefe ' + (S.goal - tx) + ' XP kaldı.'];
+    if (!S.stats.lessons) return [T('Selam! Ben <b>Nozi</b> 👋'), T('Klipper\'ı birlikte katman katman öğreneceğiz. İlk dersle başlayalım mı?')];
+    if (due >= 5) return [T('Bazı bilgiler soğumaya başladı 🥶'), due + T(' soru tekrar bekliyor. Unutmadan ısıtalım!')];
+    if (tx >= S.goal) return [T('Bugünkü hedef tamam! 🎉'), T('Seri ') + curStreak() + T(' gün. İstersen bir ders daha basalım.')];
+    if (S.lastDay !== dayKey() && S.streak > 0) return [T('Serin tehlikede! 🔥'), T('Bugün bir ders bitir, ') + S.streak + T(' günlük seri devam etsin.')];
+    return [T('Hadi, nozul ısındı! 🔥'), T('Günlük hedefe ') + (S.goal - tx) + T(' XP kaldı.')];
   }
   function questsHtml() {
-    var h = '<div class="card quests"><div class="row" style="margin-bottom:4px"><h3 style="flex:1;margin:0">Günlük görevler</h3><span class="small muted" style="font-weight:800">her görev 🧵10</span></div>';
+    var h = T('<div class="card quests"><div class="row" style="margin-bottom:4px"><h3 style="flex:1;margin:0">Günlük görevler</h3><span class="small muted" style="font-weight:800">her görev 🧵10</span></div>');
     S.quests.list.forEach(function (q, i) {
       var P = QPOOL[q.k], p = Math.min(qProg(q), q.g), pct = p / q.g * 100;
       h += '<div class="quest"><div class="qi">' + P.ic + '</div><div style="flex:1"><div class="qt">' + esc(P.t(q.g)) + '</div><div class="bar"><i style="width:' + pct + '%"></i><span class="lbl">' + p + ' / ' + q.g + '</span></div></div>' +
-        (q.c ? '<span class="claimed">✅</span>' : pct >= 100 ? '<button class="claim" data-claim="' + i + '">🎁 AL</button>' : '<span class="claimed" style="opacity:.35">🎁</span>') + '</div>';
+        (q.c ? '<span class="claimed">✅</span>' : pct >= 100 ? '<button class="claim" data-claim="' + i + T('">🎁 AL</button>') : '<span class="claimed" style="opacity:.35">🎁</span>') + '</div>';
     });
     return h + '</div>';
   }
@@ -351,54 +367,54 @@
     var g = greeting(), due = dueIds().length, nb = unseenCount();
     var h = '<div class="hello"><div class="nz">' + nozi(S.lastDay === dayKey() && todayXp() >= S.goal ? 'happy' : 'idle') + '</div><div class="bubble">' + g[0] + '<span class="sub">' + g[1] + '</span></div></div>';
     h += questsHtml();
-    if (due > 0) h += '<button class="alert review press" data-act="review" style="width:100%;text-align:left"><span class="ai">🧠</span><span class="at">Tekrar zamanı<small>' + due + ' soru unutulmak üzere</small></span><span class="btn blue sm">BAŞLA</span></button>';
-    if (nb > 0) h += '<button class="alert news press" data-tab="news" style="width:100%;text-align:left"><span class="ai">📰</span><span class="at">Klipper\'da yenilik var<small>' + nb + ' yeni config değişikliği</small></span><span class="btn ghost sm">BAK</span></button>';
+    if (due > 0) h += T('<button class="alert review press" data-act="review" style="width:100%;text-align:left"><span class="ai">🧠</span><span class="at">Tekrar zamanı<small>') + due + T(' soru unutulmak üzere</small></span><span class="btn blue sm">BAŞLA</span></button>');
+    if (nb > 0) h += T('<button class="alert news press" data-tab="news" style="width:100%;text-align:left"><span class="ai">📰</span><span class="at">Klipper\'da yenilik var<small>') + nb + T(' yeni config değişikliği</small></span><span class="btn ghost sm">BAK</span></button>');
 
     var offs = [0, 58, 82, 58, 0, -58, -82, -58], firstOpen = null, k = 0;
     for (var i = 0; i < LESSONS.length; i++) if (!S.done[LESSONS[i].id] && isUnlocked(LESSONS[i])) { firstOpen = LESSONS[i].id; break; }
     UNITS.forEach(function (u) {
       var dn = u.lessons.filter(function (l) { return S.done[l.id]; }).length, frac = dn / u.lessons.length;
-      h += '<div class="unit"><div class="unit-head" style="background:' + u.color + ';--ud:' + u.dark + '"><div class="tex"></div><div class="ut"><div class="un">ÜNİTE ' + (u.ui + 1) + ' · ' + u.icon + '</div><h2>' + esc(u.title) + '</h2><p>' + esc(u.desc) + '</p><span class="uc">' + (frac === 1 ? 'Baskı tamam ✨' : '%' + Math.round(frac * 100) + ' basıldı') + '</span></div>' + printObj(u, frac) + '</div>';
+      h += '<div class="unit"><div class="unit-head" style="background:' + u.color + ';--ud:' + u.dark + T('"><div class="tex"></div><div class="ut"><div class="un">ÜNİTE ') + (u.ui + 1) + ' · ' + u.icon + '</div><h2>' + esc(u.title) + '</h2><p>' + esc(u.desc) + '</p><span class="uc">' + (frac === 1 ? T('Baskı tamam ✨') : pct(Math.round(frac * 100)) + T(' basıldı')) + '</span></div>' + printObj(u, frac) + '</div>';
       h += '<div class="path">';
       u.lessons.forEach(function (l) {
         var done = !!S.done[l.id], open = isUnlocked(l), cur = l.id === firstOpen, off = offs[k++ % offs.length];
         var cls = cur ? 'cur' : (done || open) ? 'done' : 'locked', st = stars(l.id);
         h += '<div class="node-wrap" style="transform:translateX(' + off + 'px)">' +
-          (cur ? '<div class="tip">' + (S.stats.lessons ? 'DEVAM' : 'BAŞLA') + '</div>' : '') +
+          (cur ? '<div class="tip">' + (S.stats.lessons ? T('DEVAM') : T('BAŞLA')) + '</div>' : '') +
           (cur ? '<div class="peek" style="' + (off > 0 ? 'left:-52px' : 'right:-52px') + '">' + nozi('idle') + '</div>' : '') +
           '<button class="node ' + cls + '" style="--uc:' + u.color + ';--ud:' + u.dark + '" data-lesson="' + l.id + '"><span>' + (done ? '✔' : open ? u.icon : '🔒') + '</span>' + (st === 3 ? '<span class="crown">👑</span>' : '') + '</button>' +
           '<div class="node-label' + (open ? '' : ' locked') + '">' + esc(l.title) + '</div>' + (st ? '<div class="stars">' + '⭐'.repeat(st) + '</div>' : '') + '</div>';
       });
       var off2 = offs[k++ % offs.length], ready = unitDone(u) && !S.chests[u.id];
-      h += '<div class="node-wrap" style="transform:translateX(' + off2 + 'px)"><button class="chest ' + (S.chests[u.id] ? 'open' : ready ? 'ready' : '') + '" data-chest="' + u.id + '">' + (S.chests[u.id] ? '📭' : '🎁') + '</button><div class="node-label' + (ready ? '' : ' locked') + '">' + (S.chests[u.id] ? 'Açıldı' : ready ? 'Sandığı aç!' : 'Ünite sandığı') + '</div></div>';
+      h += '<div class="node-wrap" style="transform:translateX(' + off2 + 'px)"><button class="chest ' + (S.chests[u.id] ? 'open' : ready ? 'ready' : '') + '" data-chest="' + u.id + '">' + (S.chests[u.id] ? '📭' : '🎁') + '</button><div class="node-label' + (ready ? '' : ' locked') + '">' + (S.chests[u.id] ? T('Açıldı') : ready ? T('Sandığı aç!') : T('Ünite sandığı')) + '</div></div>';
       h += '</div></div>';
     });
-    h += '<div class="empty"><div class="nz">' + nozi(LESSONS.every(function (l) { return S.done[l.id]; }) ? 'cheer' : 'think') + '</div>' + (LESSONS.every(function (l) { return S.done[l.id]; }) ? 'Hepsini bitirdin, usta! Artık tekrarlarla taze tut.' : 'Yolun sonu burada. Katman katman ilerle!') + '</div>';
+    h += '<div class="empty"><div class="nz">' + nozi(LESSONS.every(function (l) { return S.done[l.id]; }) ? 'cheer' : 'think') + '</div>' + (LESSONS.every(function (l) { return S.done[l.id]; }) ? T('Hepsini bitirdin, usta! Artık tekrarlarla taze tut.') : T('Yolun sonu burada. Katman katman ilerle!')) + '</div>';
     return h;
   }
 
   // ---------- Tekrar ----------
   function reviewHtml() {
     var due = dueIds(), weak = weakIds(), learned = Object.keys(S.srs).length;
-    var h = '<div class="hello"><div class="nz">' + nozi(due.length ? 'think' : 'happy') + '</div><div class="bubble">' + (due.length ? due.length + ' soru tekrar bekliyor' : learned ? 'Şu an her şey taze! 🧊' : 'Önce bir ders bitirelim') +
-      '<span class="sub">Bildiğin soru 1, 3, 7, 16, 35, 90 gün sonra geri gelir. Yanlış yaptığın hemen gelir.</span></div></div>';
-    if (due.length) h += '<button class="btn primary" data-act="review">TEKRARA BAŞLA</button>';
-    else if (learned) h += '<button class="btn blue" data-act="practice">KARIŞIK PRATİK</button>';
+    var h = '<div class="hello"><div class="nz">' + nozi(due.length ? 'think' : 'happy') + '</div><div class="bubble">' + (due.length ? due.length + T(' soru tekrar bekliyor') : learned ? T('Şu an her şey taze! 🧊') : T('Önce bir ders bitirelim')) +
+      T('<span class="sub">Bildiğin soru 1, 3, 7, 16, 35, 90 gün sonra geri gelir. Yanlış yaptığın hemen gelir.</span></div></div>');
+    if (due.length) h += T('<button class="btn primary" data-act="review">TEKRARA BAŞLA</button>');
+    else if (learned) h += T('<button class="btn blue" data-act="practice">KARIŞIK PRATİK</button>');
     if (learned) {
       var boxes = [0, 0, 0, 0, 0, 0, 0]; Object.keys(S.srs).forEach(function (id) { boxes[S.srs[id].box]++; });
-      var names = ['Unutuldu', '1 gün', '3 gün', '1 hafta', '2 hafta', '1 ay', 'Usta 👑'], cols = ['#ff5a5f', '#ff8a3d', '#ffc53d', '#eab308', '#a3e635', '#3ddc84', '#14b8a6'];
-      h += '<div class="sec-title">Hafızan</div><div class="card">';
+      var names = [T('Unutuldu'), T('1 gün'), T('3 gün'), T('1 hafta'), T('2 hafta'), T('1 ay'), T('Usta 👑')], cols = ['#ff5a5f', '#ff8a3d', '#ffc53d', '#eab308', '#a3e635', '#3ddc84', '#14b8a6'];
+      h += T('<div class="sec-title">Hafızan</div><div class="card">');
       boxes.forEach(function (n, i) { h += '<div class="mem-row"><span>' + names[i] + '</span><div class="bar"><i style="width:' + (n / learned * 100) + '%;background:' + cols[i] + '"></i></div><b>' + n + '</b></div>'; });
       h += '</div>';
     }
     if (weak.length) {
-      h += '<div class="sec-title">Zayıf noktaların</div>';
-      weak.slice(0, 5).forEach(function (id) { var q = QIDX[id]; h += '<div class="weak"><div class="wl">' + q.lesson.unit.icon + ' ' + esc(q.lesson.title) + ' · ' + S.srs[id].wrong + ' yanlış</div><div class="wq">' + esc(q.q) + '</div></div>'; });
-      h += '<button class="btn ghost" data-act="weak">ZAYIF NOKTALARI ÇALIŞ</button>';
+      h += T('<div class="sec-title">Zayıf noktaların</div>');
+      weak.slice(0, 5).forEach(function (id) { var q = QIDX[id]; h += '<div class="weak"><div class="wl">' + q.lesson.unit.icon + ' ' + esc(q.lesson.title) + ' · ' + S.srs[id].wrong + T(' yanlış</div><div class="wq">') + esc(q.q) + '</div></div>'; });
+      h += T('<button class="btn ghost" data-act="weak">ZAYIF NOKTALARI ÇALIŞ</button>');
     }
     var ld = LESSONS.filter(function (l) { return S.done[l.id]; });
     if (ld.length) {
-      h += '<div class="sec-title">Ders bazında güç</div>';
+      h += T('<div class="sec-title">Ders bazında güç</div>');
       ld.forEach(function (l) {
         var s = strength(l.id);
         h += '<button class="lrow press" data-lesson="' + l.id + '"><span class="li" style="background:' + l.unit.color + '">' + l.unit.icon + '</span><div style="flex:1"><div style="font-weight:900;font-size:15px">' + esc(l.title) + '</div><div class="bar" style="height:9px;margin-top:7px"><i style="width:' + Math.round(s * 100) + '%;background:' + l.unit.color + '"></i></div></div><span class="muted small" style="font-weight:900">↻</span></button>';
@@ -410,30 +426,30 @@
   // ---------- Yenilikler ----------
   function newsHtml() {
     var c = S.news.cache;
-    var h = '<div class="hello"><div class="nz">' + nozi(UI.loading ? 'think' : 'idle') + '</div><div class="bubble">Klipper\'dan taze haberler<span class="sub">' + (c ? 'Son kontrol: ' + ago(c.at) : 'Henüz kontrol edilmedi') + ' · <a href="#" data-act="refresh">' + (UI.loading ? '<span class="spinner"></span>' : 'Şimdi kontrol et') + '</a></span></div></div>';
-    if (UI.newsErr) h += '<div class="card" style="border-color:#7f1d1d"><b>Bağlanılamadı.</b> <span class="muted small">' + esc(UI.newsErr) + (c ? ' Aşağıda son kaydedilen bilgiler var.' : '') + '</span></div>';
-    if (!c) { h += UI.loading ? '' : '<div class="empty">Klipper\'ın GitHub deposundan config değişikliklerini, son commit\'leri ve wiki\'ye eklenen komutları çekerim.<br><br><button class="btn primary" data-act="refresh">ŞİMDİ KONTROL ET</button></div>'; return h; }
-    if (c.release) h += '<div class="card row"><div style="font-size:30px">🏷️</div><div><div class="muted small" style="font-weight:800">Son resmi sürüm</div><b style="font-size:18px">' + esc(c.release.name) + '</b> <span class="muted small">· ' + fmtDate8(c.release.date) + '</span></div></div>';
-    var segs = [['changes', 'Değişiklikler'], ['wiki', 'Wiki kontrolü'], ['commits', 'Commit\'ler']];
+    var h = '<div class="hello"><div class="nz">' + nozi(UI.loading ? 'think' : 'idle') + T('</div><div class="bubble">Klipper\'dan taze haberler<span class="sub">') + (c ? T('Son kontrol: ') + ago(c.at) : T('Henüz kontrol edilmedi')) + ' · <a href="#" data-act="refresh">' + (UI.loading ? '<span class="spinner"></span>' : T('Şimdi kontrol et')) + '</a></span></div></div>';
+    if (UI.newsErr) h += T('<div class="card" style="border-color:#7f1d1d"><b>Bağlanılamadı.</b> <span class="muted small">') + esc(UI.newsErr) + (c ? T(' Aşağıda son kaydedilen bilgiler var.') : '') + '</span></div>';
+    if (!c) { h += UI.loading ? '' : T('<div class="empty">Klipper\'ın GitHub deposundan config değişikliklerini, son commit\'leri ve wiki\'ye eklenen komutları çekerim.<br><br><button class="btn primary" data-act="refresh">ŞİMDİ KONTROL ET</button></div>'); return h; }
+    if (c.release) h += T('<div class="card row"><div style="font-size:30px">🏷️</div><div><div class="muted small" style="font-weight:800">Son resmi sürüm</div><b style="font-size:18px">') + esc(c.release.name) + '</b> <span class="muted small">· ' + fmtDate8(c.release.date) + '</span></div></div>';
+    var segs = [['changes', T('Değişiklikler')], ['wiki', T('Wiki kontrolü')], ['commits', T('Commit\'ler')]];
     h += '<div class="seg">' + segs.map(function (s) { return '<button class="' + (UI.newsSeg === s[0] ? 'on' : '') + '" data-seg="' + s[0] + '">' + s[1] + '</button>'; }).join('') + '</div>';
     var seen = UI.prevSeen || SNAP.date.replace(/-/g, '');
     if (UI.newsSeg === 'changes') {
-      h += '<p class="muted small" style="margin:0 2px 10px;font-weight:700">Güncellerken config\'ini etkileyebilecek değişiklikler. Metinler resmi İngilizce haliyle.</p>';
+      h += T('<p class="muted small" style="margin:0 2px 10px;font-weight:700">Güncellerken config\'ini etkileyebilecek değişiklikler. Metinler resmi İngilizce haliyle.</p>');
       (c.changes || []).forEach(function (x) {
         var isNew = x.date > seen, ls = relatedLessons(x.text);
-        h += '<div class="news-item' + (isNew ? ' new' : '') + '"><div class="d">📅 ' + fmtDate8(x.date) + (isNew ? '<span class="nw">YENİ</span>' : '') + '</div><p>' + inlineMd(x.text) + '</p>' +
-          ls.map(function (l) { return '<button class="lchip press" data-lesson="' + l.id + '">📘 Ders: ' + esc(l.title) + '</button> '; }).join('') + '</div>';
+        h += '<div class="news-item' + (isNew ? ' new' : '') + '"><div class="d">📅 ' + fmtDate8(x.date) + (isNew ? T('<span class="nw">YENİ</span>') : '') + '</div><p>' + inlineMd(x.text) + '</p>' +
+          ls.map(function (l) { return '<button class="lchip press" data-lesson="' + l.id + T('">📘 Ders: ') + esc(l.title) + '</button> '; }).join('') + '</div>';
       });
-      h += '<button class="btn ghost" data-url="' + DOC + 'Config_Changes.html">TAMAMINI WİKİ\'DE AÇ</button>';
+      h += '<button class="btn ghost" data-url="' + DOC + T('Config_Changes.html">TAMAMINI WİKİ\'DE AÇ</button>');
     } else if (UI.newsSeg === 'wiki') {
       var add = c.added || [], rem = c.removed || [];
-      h += '<div class="card"><h3>Komut listesi karşılaştırması</h3><p class="muted small" style="margin:0;font-weight:700">Uygulama ' + fmtDate8(SNAP.date.replace(/-/g, '')) + ' tarihli wiki ile hazırlandı (' + SNAP.commands.length + ' komut). Wiki\'de şu an ' + (c.total || '?') + ' komut var.</p></div>';
-      if (!add.length && !rem.length) h += '<div class="empty"><div class="nz">' + nozi('happy') + '</div>Wiki\'de yeni komut yok. İçerik güncel!</div>';
-      if (add.length) { h += '<div class="sec-title">Wiki\'ye eklenenler (' + add.length + ')</div>'; add.forEach(function (n) { h += '<div class="ref"><div class="n">🆕 ' + esc(n) + '</div><div class="acts"><a href="#" data-url="' + DOC + 'G-Codes.html#' + n.toLowerCase() + '">Wiki\'de oku ›</a></div></div>'; }); }
-      if (rem.length) { h += '<div class="sec-title">Wiki\'den kalkanlar (' + rem.length + ')</div>'; rem.forEach(function (n) { h += '<div class="ref"><div class="n" style="color:#ff8a8d;text-decoration:line-through">' + esc(n) + '</div>' + (REF_BY_CMD[n] ? '<div class="small muted">Derslerde geçiyor; kullanmadan önce wiki\'ye bak.</div>' : '') + '</div>'; }); }
+      h += T('<div class="card"><h3>Komut listesi karşılaştırması</h3><p class="muted small" style="margin:0;font-weight:700">Uygulama ') + fmtDate8(SNAP.date.replace(/-/g, '')) + T(' tarihli wiki ile hazırlandı (') + SNAP.commands.length + T(' komut). Wiki\'de şu an ') + (c.total || '?') + T(' komut var.</p></div>');
+      if (!add.length && !rem.length) h += '<div class="empty"><div class="nz">' + nozi('happy') + T('</div>Wiki\'de yeni komut yok. İçerik güncel!</div>');
+      if (add.length) { h += T('<div class="sec-title">Wiki\'ye eklenenler (') + add.length + ')</div>'; add.forEach(function (n) { h += '<div class="ref"><div class="n">🆕 ' + esc(n) + '</div><div class="acts"><a href="#" data-url="' + DOC + 'G-Codes.html#' + n.toLowerCase() + T('">Wiki\'de oku ›</a></div></div>'); }); }
+      if (rem.length) { h += T('<div class="sec-title">Wiki\'den kalkanlar (') + rem.length + ')</div>'; rem.forEach(function (n) { h += '<div class="ref"><div class="n" style="color:#ff8a8d;text-decoration:line-through">' + esc(n) + '</div>' + (REF_BY_CMD[n] ? T('<div class="small muted">Derslerde geçiyor; kullanmadan önce wiki\'ye bak.</div>') : '') + '</div>'; }); }
     } else {
-      (c.commits || []).forEach(function (x) { h += '<div class="news-item"><div class="d">' + esc(x.date.slice(0, 10).split('-').reverse().join('.')) + ' · ' + esc(x.author) + '</div><p>' + inlineMd(x.msg) + '</p><a href="#" class="small" data-url="' + esc(x.url) + '">GitHub\'da aç ›</a></div>'; });
-      if (!(c.commits || []).length) h += '<div class="empty">Commit bilgisi alınamadı.</div>';
+      (c.commits || []).forEach(function (x) { h += '<div class="news-item"><div class="d">' + esc(x.date.slice(0, 10).split('-').reverse().join('.')) + ' · ' + esc(x.author) + '</div><p>' + inlineMd(x.msg) + '</p><a href="#" class="small" data-url="' + esc(x.url) + T('">GitHub\'da aç ›</a></div>'); });
+      if (!(c.commits || []).length) h += T('<div class="empty">Commit bilgisi alınamadı.</div>');
     }
     return h;
   }
@@ -476,7 +492,7 @@
       if (!res.release) res.release = prev.release;
       if (res.added == null) { res.added = prev.added || []; res.removed = prev.removed || []; res.total = prev.total; }
       S.news.cache = res; save();
-    }).catch(function () { UI.newsErr = 'Klipper GitHub\'a ulaşılamadı. İnternet bağlantını kontrol et.'; })
+    }).catch(function () { UI.newsErr = T('Klipper GitHub\'a ulaşılamadı. İnternet bağlantını kontrol et.'); })
       .then(function () { UI.loading = false; if (UI.tab === 'news') markSeen(); if (!SES) render(); });
   }
   function markSeen() {
@@ -489,8 +505,8 @@
   function refHtml() {
     var q = UI.refQ.trim().toUpperCase(), cats = ['Tümü'];
     REF.forEach(function (r) { if (cats.indexOf(r.k) < 0) cats.push(r.k); });
-    var h = '<input id="refq" class="search" placeholder="🔍  Komut ara: BED_MESH, M109, fan…" value="' + esc(UI.refQ) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">';
-    if (!q) h += '<div class="cats">' + cats.map(function (c) { return '<button class="cat' + (UI.refCat === c ? ' on' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>'; }).join('') + '</div>';
+    var h = T('<input id="refq" class="search" placeholder="🔍  Komut ara: BED_MESH, M109, fan…" value="') + esc(UI.refQ) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">';
+    if (!q) h += '<div class="cats">' + cats.map(function (c) { return '<button class="cat' + (UI.refCat === c ? ' on' : '') + '" data-cat="' + esc(c) + '">' + esc(T(c)) + '</button>'; }).join('') + '</div>';
     var list = REF.filter(function (r) { if (q) return (r.c + ' ' + r.s + ' ' + r.d).toUpperCase().indexOf(q) >= 0; return UI.refCat === 'Tümü' || r.k === UI.refCat; });
     list.forEach(function (r) {
       var l = LIDX[r.l];
@@ -500,8 +516,8 @@
     });
     if (q) {
       var extra = SNAP.commands.filter(function (c) { return !REF_BY_CMD[c] && c.indexOf(q) >= 0; }).slice(0, 30);
-      if (extra.length) { h += '<div class="sec-title">Wiki\'deki diğer komutlar</div>'; extra.forEach(function (c) { h += '<div class="ref"><div class="n">' + esc(c) + '</div><div class="acts"><a href="#" data-url="' + DOC + 'G-Codes.html#' + (/^[GM]\d/.test(c) ? 'g-code-commands' : c.toLowerCase()) + '">Wiki\'de oku (İngilizce) ›</a></div></div>'; }); }
-      if (!list.length && !extra.length) h += '<div class="empty"><div class="nz">' + nozi('sad') + '</div>"' + esc(UI.refQ) + '" bulunamadı.</div>';
+      if (extra.length) { h += T('<div class="sec-title">Wiki\'deki diğer komutlar</div>'); extra.forEach(function (c) { h += '<div class="ref"><div class="n">' + esc(c) + '</div><div class="acts"><a href="#" data-url="' + DOC + 'G-Codes.html#' + (/^[GM]\d/.test(c) ? 'g-code-commands' : c.toLowerCase()) + T('">Wiki\'de oku (İngilizce) ›</a></div></div>'); }); }
+      if (!list.length && !extra.length) h += '<div class="empty"><div class="nz">' + nozi('sad') + '</div>"' + esc(UI.refQ) + T('" bulunamadı.</div>');
     }
     return h;
   }
@@ -509,25 +525,26 @@
   // ---------- Profil ----------
   function meHtml() {
     var acc = S.stats.answered ? Math.round(S.stats.correct / S.stats.answered * 100) : 0, done = LESSONS.filter(function (l) { return S.done[l.id]; }).length, L = lvl(S.xp);
-    var h = '<div class="prof"><div class="nz">' + nozi(S.xp ? 'happy' : 'idle') + '</div><div style="flex:1"><h2>' + TITLES[Math.min(L.L - 1, TITLES.length - 1)] + '</h2><div class="muted small" style="font-weight:800">Sonraki seviyeye ' + L.need + ' XP</div><div class="lvl"><b>Sv. ' + L.L + '</b><div class="bar"><i style="width:' + Math.round(L.p * 100) + '%"></i></div></div></div></div>';
+    var h = '<div class="prof"><div class="nz">' + nozi(S.xp ? 'happy' : 'idle') + '</div><div style="flex:1"><h2>' + TITLES[Math.min(L.L - 1, TITLES.length - 1)] + T('</h2><div class="muted small" style="font-weight:800">Sonraki seviyeye ') + L.need + T(' XP</div><div class="lvl"><b>Sv. ') + L.L + '</b><div class="bar"><i style="width:' + Math.round(L.p * 100) + '%"></i></div></div></div></div>';
     h += '<div class="stat-grid">' +
-      '<div class="stat"><span class="si">🔥</span><div><b>' + curStreak() + '</b><span>gün seri · en iyi ' + S.best + '</span></div></div>' +
-      '<div class="stat"><span class="si">⚡</span><div><b>' + S.xp + '</b><span>toplam XP</span></div></div>' +
-      '<div class="stat"><span class="si">📘</span><div><b>' + done + '/' + LESSONS.length + '</b><span>ders</span></div></div>' +
-      '<div class="stat"><span class="si">🎯</span><div><b>%' + acc + '</b><span>doğruluk</span></div></div></div>';
+      '<div class="stat"><span class="si">🔥</span><div><b>' + curStreak() + T('</b><span>gün seri · en iyi ') + S.best + '</span></div></div>' +
+      '<div class="stat"><span class="si">⚡</span><div><b>' + S.xp + T('</b><span>toplam XP</span></div></div>') +
+      '<div class="stat"><span class="si">📘</span><div><b>' + done + '/' + LESSONS.length + T('</b><span>ders</span></div></div>') +
+      '<div class="stat"><span class="si">🎯</span><div><b>' + pct(acc) + T('</b><span>doğruluk</span></div></div></div>');
     var got = BADGES.filter(function (b) { return S.badges[b.id]; }).length;
-    h += '<div class="sec-title">Rozetler <span class="muted small">' + got + '/' + BADGES.length + '</span></div><div class="badges">' + BADGES.map(function (b) {
+    h += T('<div class="sec-title">Rozetler <span class="muted small">') + got + '/' + BADGES.length + '</span></div><div class="badges">' + BADGES.map(function (b) {
       var on = !!S.badges[b.id];
       return '<div class="badge-it' + (on ? '' : ' off') + '" style="--bc:' + b.c + '"><div class="bi">' + b.ic + '</div><b>' + b.n + '</b><span>' + b.d + '</span></div>';
     }).join('') + '</div>';
-    h += '<div class="sec-title">Dükkân</div><div class="card shop"><span class="si">🧊</span><div style="flex:1"><b>Seri koruyucu</b><div class="muted small" style="font-weight:700">Bir gün kaçırırsan serin bozulmaz. Elinde: ' + S.freezes + '/2</div></div><button class="btn ' + (S.spools >= 50 && S.freezes < 2 ? 'primary' : 'ghost') + ' sm" data-act="buy"' + (S.spools >= 50 && S.freezes < 2 ? '' : ' disabled') + '>🧵 50</button></div>';
-    h += '<div class="sec-title">Ayarlar</div>';
-    h += '<div class="card row"><span style="font-size:24px">🔊</span><b style="flex:1">Sesler</b><button class="toggle' + (S.sound ? ' on' : '') + '" data-act="sound" aria-label="Sesler"></button></div>';
-    h += '<div class="small muted" style="font-weight:800;margin:4px 2px 8px">Günlük hedef</div><div class="seg">' + [[20, 'Rahat'], [50, 'Normal'], [100, 'Ciddi'], [200, 'Çılgın']].map(function (g) {
+    h += T('<div class="sec-title">Dükkân</div><div class="card shop"><span class="si">🧊</span><div style="flex:1"><b>Seri koruyucu</b><div class="muted small" style="font-weight:700">Bir gün kaçırırsan serin bozulmaz. Elinde: ') + S.freezes + '/2</div></div><button class="btn ' + (S.spools >= 50 && S.freezes < 2 ? 'primary' : 'ghost') + ' sm" data-act="buy"' + (S.spools >= 50 && S.freezes < 2 ? '' : ' disabled') + '>🧵 50</button></div>';
+    h += T('<div class="sec-title">Ayarlar</div>');
+    h += '<div class="seg">' + [['tr', '🇹🇷 Türkçe'], ['en', '🇬🇧 English']].map(function (o) { return '<button class="' + (LANG === o[0] ? 'on' : '') + '" data-lang="' + o[0] + '">' + o[1] + '</button>'; }).join('') + '</div>';
+    h += T('<div class="card row"><span style="font-size:24px">🔊</span><b style="flex:1">Sesler</b><button class="toggle') + (S.sound ? ' on' : '') + T('" data-act="sound" aria-label="Sesler"></button></div>');
+    h += T('<div class="small muted" style="font-weight:800;margin:4px 2px 8px">Günlük hedef</div><div class="seg">') + [[20, T('Rahat')], [50, 'Normal'], [100, T('Ciddi')], [200, T('Çılgın')]].map(function (g) {
       return '<button class="' + (S.goal === g[0] ? 'on' : '') + '" data-goal="' + g[0] + '">' + g[1] + '<br><span class="small muted">' + g[0] + ' XP</span></button>';
     }).join('') + '</div>';
-    h += '<div class="card small" style="line-height:1.55;font-weight:600">Dersler Klipper\'ın resmi dokümanlarından (klipper3d.org) Türkçe hazırlandı. ' + UNITS.length + ' ünite, ' + LESSONS.length + ' ders, ' + Object.keys(QIDX).length + ' soru. Komut listesi ' + fmtDate8(SNAP.date.replace(/-/g, '')) + ' tarihli; Yenilikler sekmesi wiki\'yi canlı kontrol eder.<br><a href="#" data-url="' + DOC + 'Overview.html">Klipper dokümanlarını aç ›</a></div>';
-    h += '<button class="btn ghost" data-act="reset">İLERLEMEYİ SIFIRLA</button>';
+    h += T('<div class="card small" style="line-height:1.55;font-weight:600">Dersler Klipper\'ın resmi dokümanlarından (klipper3d.org) Türkçe hazırlandı. ') + UNITS.length + T(' ünite, ') + LESSONS.length + T(' ders, ') + Object.keys(QIDX).length + T(' soru. Komut listesi ') + fmtDate8(SNAP.date.replace(/-/g, '')) + T(' tarihli; Yenilikler sekmesi wiki\'yi canlı kontrol eder.<br><a href="#" data-url="') + DOC + T('Overview.html">Klipper dokümanlarını aç ›</a></div>');
+    h += T('<button class="btn ghost" data-act="reset">İLERLEMEYİ SIFIRLA</button>');
     return h;
   }
 
@@ -544,13 +561,13 @@
   // ---------- Ders oturumu ----------
   function startLesson(l, force) {
     if (!isUnlocked(l) && !force) {
-      var d = modal('<div class="nz">' + nozi('think') + '</div><h3>🔒 ' + esc(l.title) + '</h3><p class="muted">Bu ders henüz kilitli. Konuyu biliyorsan yine de başlayabilirsin.</p><button class="btn primary" id="m-go">YİNE DE BAŞLA</button><button class="btn ghost" id="m-x">VAZGEÇ</button>');
+      var d = modal('<div class="nz">' + nozi('think') + '</div><h3>🔒 ' + esc(l.title) + T('</h3><p class="muted">Bu ders henüz kilitli. Konuyu biliyorsan yine de başlayabilirsin.</p><button class="btn primary" id="m-go">YİNE DE BAŞLA</button><button class="btn ghost" id="m-x">VAZGEÇ</button>'));
       d.querySelector('#m-go').onclick = function () { closeModal(); startLesson(l, true); };
       d.querySelector('#m-x').onclick = closeModal; return;
     }
     var items = [], replay = !!S.done[l.id];
     if (!replay) l.teach.forEach(function (t, i) { items.push({ kind: 'teach', t: t, n: i + 1, of: l.teach.length }); });
-    else items.push({ kind: 'teach', t: { title: 'Hatırlayalım', body: l.teach.map(function (t) { return '• **' + t.title + '**'; }).join('\n') + '\n\nBu dersi daha önce bitirdin. Bakalım ne kadar aklında kalmış!' }, n: 1, of: 1 });
+    else items.push({ kind: 'teach', t: { title: T('Hatırlayalım'), body: l.teach.map(function (t) { return '• **' + t.title + '**'; }).join('\n') + T('\n\nBu dersi daha önce bitirdin. Bakalım ne kadar aklında kalmış!') }, n: 1, of: 1 });
     var qs = shuffle(l.questions.slice(0, 3)).concat(shuffle(l.questions.slice(3))).map(function (q) { return { kind: 'q', q: q }; });
     var olds = dueIds().filter(function (id) { return QIDX[id].lesson.id !== l.id; }).slice(0, 2);
     if (olds.length < 2) {
@@ -604,23 +621,23 @@
     if (!it) { lessonEl.innerHTML = h + resultHtml(); return; }
     h += '<div class="l-body' + (it.shown ? '' : ' fresh') + '" id="lbody">'; it.shown = true;
     if (it.kind === 'teach') {
-      h += '<div class="teach"><div class="who"><div class="nz">' + nozi(it.n === 1 ? 'happy' : 'idle') + '</div><span class="tag">Nozi anlatıyor' + (it.of > 1 ? ' · ' + it.n + '/' + it.of : '') + '</span></div><div class="tcard"><h2>' + esc(it.t.title) + '</h2>' + (it.t.body ? '<div class="tbody">' + md(it.t.body) + '</div>' : '') + (it.t.code ? codeHtml(it.t.code) : '') +
-        (SES.lesson && SES.lesson.doc && it.n === it.of ? '<a href="#" class="small" data-url="' + DOC + SES.lesson.doc + '">📖 Wiki\'de bu konu ›</a>' : '') + '</div></div>';
-      h += '</div><div class="l-foot"><button class="btn primary" data-sact="next">' + (it.n === it.of ? 'HADİ BAŞLAYALIM' : 'DEVAM') + '</button></div>';
+      h += '<div class="teach"><div class="who"><div class="nz">' + nozi(it.n === 1 ? 'happy' : 'idle') + T('</div><span class="tag">Nozi anlatıyor') + (it.of > 1 ? ' · ' + it.n + '/' + it.of : '') + '</span></div><div class="tcard"><h2>' + esc(it.t.title) + '</h2>' + (it.t.body ? '<div class="tbody">' + md(it.t.body) + '</div>' : '') + (it.t.code ? codeHtml(it.t.code) : '') +
+        (SES.lesson && SES.lesson.doc && it.n === it.of ? '<a href="#" class="small" data-url="' + DOC + SES.lesson.doc + T('">📖 Wiki\'de bu konu ›</a>') : '') + '</div></div>';
+      h += '</div><div class="l-foot"><button class="btn primary" data-sact="next">' + (it.n === it.of ? T('HADİ BAŞLAYALIM') : T('DEVAM')) + '</button></div>';
     } else {
       h += questionHtml(it) + '</div>';
       if (it.st.done) h += feedbackHtml(it);
-      else if (it.q.t !== 'match') h += '<div class="l-foot"><button class="btn primary" data-sact="check"' + (canCheck(it) ? '' : ' disabled') + '>KONTROL ET</button></div>';
-      else h += '<div class="l-foot"><button class="btn ghost" data-sact="skipmatch">BİLMİYORUM</button></div>';
+      else if (it.q.t !== 'match') h += '<div class="l-foot"><button class="btn primary" data-sact="check"' + (canCheck(it) ? '' : ' disabled') + T('>KONTROL ET</button></div>');
+      else h += T('<div class="l-foot"><button class="btn ghost" data-sact="skipmatch">BİLMİYORUM</button></div>');
     }
     lessonEl.innerHTML = h;
     var ti = lessonEl.querySelector('.type-in'); if (ti && !it.st.done) ti.focus();
   }
 
-  var KIND = { mc: '🎯 Doğru cevabı seç', tf: '⚖️ Doğru mu, yanlış mı?', fill: '🧩 Boşluğu doldur', order: '🪜 Doğru sıraya diz', match: '🔗 Eşleştir', type: '⌨️ Cevabı yaz' };
+  var KIND = { mc: T('🎯 Doğru cevabı seç'), tf: T('⚖️ Doğru mu, yanlış mı?'), fill: T('🧩 Boşluğu doldur'), order: T('🪜 Doğru sıraya diz'), match: T('🔗 Eşleştir'), type: T('⌨️ Cevabı yaz') };
   function questionHtml(it) {
     var q = it.q, st = it.st, d = st.done, h = '';
-    h += '<div class="q-kind">' + (q.log ? '🚨 Arıza vakası' : KIND[q.t]) + (it.review ? '<span class="rv">🔁 Eski konu: ' + esc(q.lesson.title) + '</span>' : '') + (it.retry ? '<span class="rv" style="background:#3a1618;color:#ff8a8d">↺ Tekrar deneme</span>' : '') + '</div>';
+    h += '<div class="q-kind">' + (q.log ? T('🚨 Arıza vakası') : KIND[q.t]) + (it.review ? T('<span class="rv">🔁 Eski konu: ') + esc(q.lesson.title) + '</span>' : '') + (it.retry ? T('<span class="rv" style="background:#3a1618;color:#ff8a8d">↺ Tekrar deneme</span>') : '') + '</div>';
     h += '<p class="q-text">' + esc(q.q) + '</p>';
     if (q.log) h += logHtml(q.log);
     if (q.code && q.t !== 'fill') h += codeHtml(q.code);
@@ -632,7 +649,7 @@
         return '<button class="' + c + '" data-pick="' + i + '"' + (d ? ' disabled' : '') + '>' + esc(q.o[i]) + '</button>';
       }).join('') + '</div>';
     } else if (q.t === 'tf') {
-      h += '<div class="tf opts">' + [[true, '👍', 'Doğru'], [false, '👎', 'Yanlış']].map(function (o) {
+      h += '<div class="tf opts">' + [[true, '👍', T('Doğru')], [false, '👎', T('Yanlış')]].map(function (o) {
         var c = 'opt';
         if (d) { if (o[0] === q.a) c += ' right'; else if (o[0] === st.sel) c += ' wrong'; } else if (st.sel === o[0]) c += ' sel';
         return '<button class="' + c + '" data-tf="' + o[0] + '"' + (d ? ' disabled' : '') + '><span class="em">' + o[1] + '</span>' + o[2] + '</button>';
@@ -643,33 +660,33 @@
     } else if (q.t === 'order') {
       h += '<div class="order-ans">' + (st.ans.length ? st.ans.map(function (i, k) {
         return '<button class="chip' + (st.mono ? '' : ' txt') + '" data-unord="' + k + '"' + (d ? ' disabled style="border-color:' + (i === k ? 'var(--green)' : 'var(--red)') + '"' : '') + '>' + esc(q.items[i]) + '</button>';
-      }).join('') : '<div class="ph">👇 Aşağıdan sırayla dokun</div>') + '</div>';
+      }).join('') : T('<div class="ph">👇 Aşağıdan sırayla dokun</div>')) + '</div>';
       h += '<div class="order-bank">' + st.bank.map(function (i) { return '<button class="chip' + (st.ans.indexOf(i) >= 0 ? ' used' : '') + (st.mono ? '' : ' txt') + '" data-ord="' + i + '"' + (d ? ' disabled' : '') + '>' + esc(q.items[i]) + '</button>'; }).join('') + '</div>';
     } else if (q.t === 'match') {
       h += '<div class="match"><div class="col">' + q.pairs.map(function (p, i) { return '<button class="opt l' + (st.ok[i] ? ' ok' : '') + (st.l === i ? ' sel' : '') + (st.badL === i ? ' bad' : '') + '" data-ml="' + i + '">' + esc(p[0]) + '</button>'; }).join('') +
         '</div><div class="col">' + st.right.map(function (i) { return '<button class="opt' + (st.ok[i] ? ' ok' : '') + (st.badR === i ? ' bad' : '') + '" data-mr="' + i + '">' + esc(q.pairs[i][1]) + '</button>'; }).join('') + '</div></div>';
-      if (st.mist && !d) h += '<p class="small muted" style="margin-top:12px;font-weight:800">' + st.mist + ' hatalı eşleştirme</p>';
+      if (st.mist && !d) h += '<p class="small muted" style="margin-top:12px;font-weight:800">' + st.mist + T(' hatalı eşleştirme</p>');
     } else if (q.t === 'type') {
-      h += '<input class="type-in" id="typein" lang="en" value="' + esc(st.sel) + '" placeholder="Buraya yaz…" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"' + (d ? ' disabled' : '') + '>';
-      h += '<p class="small muted" style="font-weight:700">İpucu: büyük/küçük harf ve fazla boşluk önemli değil.</p>';
+      h += '<input class="type-in" id="typein" lang="en" value="' + esc(st.sel) + T('" placeholder="Buraya yaz…" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"') + (d ? ' disabled' : '') + '>';
+      h += T('<p class="small muted" style="font-weight:700">İpucu: büyük/küçük harf ve fazla boşluk önemli değil.</p>');
     }
     return h;
   }
   function correctText(q) {
     switch (q.t) {
-      case 'mc': return q.o[q.a]; case 'tf': return q.a ? 'Doğru' : 'Yanlış'; case 'fill': return q.code.replace('___', q.a);
+      case 'mc': return q.o[q.a]; case 'tf': return q.a ? T('Doğru') : T('Yanlış'); case 'fill': return q.code.replace('___', q.a);
       case 'order': return q.items.join('\n'); case 'match': return q.pairs.map(function (p) { return p[0] + ' → ' + p[1]; }).join('\n'); case 'type': return q.a[0];
     }
   }
-  var PRAISE = ['Harika!', 'Süper!', 'Aynen öyle!', 'Mükemmel!', 'Tam isabet!', 'Ustasın!', 'Nozul gibi keskin!'];
-  var OOPS = ['Az kaldı!', 'Olur böyle şeyler', 'Hmm, tam değil', 'Bir dahakine!'];
+  var PRAISE = [T('Harika!'), T('Süper!'), T('Aynen öyle!'), T('Mükemmel!'), T('Tam isabet!'), T('Ustasın!'), T('Nozul gibi keskin!')];
+  var OOPS = [T('Az kaldı!'), T('Olur böyle şeyler'), T('Hmm, tam değil'), T('Bir dahakine!')];
   function feedbackHtml(it) {
     var ok = it.st.ok2, gain = it.st.gain;
     var h = '<div class="fb ' + (ok ? 'ok' : 'no') + '"><div class="fbh"><div class="nz">' + nozi(ok ? 'happy' : 'sad') + '</div><h4>' + (ok ? PRAISE[it.st.msg % PRAISE.length] : OOPS[it.st.msg % OOPS.length]) + '</h4>' + (ok && gain ? '<span class="xpg">+' + gain + ' XP</span>' : '') + '</div>';
-    if (!ok) h += '<div class="small" style="font-weight:900;color:#ffb3b5;margin-bottom:4px">Doğru cevap:</div><div class="ans">' + esc(correctText(it.q)) + '</div>';
+    if (!ok) h += T('<div class="small" style="font-weight:900;color:#ffb3b5;margin-bottom:4px">Doğru cevap:</div><div class="ans">') + esc(correctText(it.q)) + '</div>';
     h += '<p>' + esc(it.q.e || '') + '</p>';
-    if (!ok) h += '<a href="#" class="small" data-url="' + DOC + it.q.lesson.doc + '" style="color:#ffb3b5">📖 Wiki\'de bu konu ›</a>';
-    h += '<button class="btn primary" data-sact="cont">' + (ok ? 'DEVAM' : 'ANLADIM') + '</button></div>';
+    if (!ok) h += '<a href="#" class="small" data-url="' + DOC + it.q.lesson.doc + T('" style="color:#ffb3b5">📖 Wiki\'de bu konu ›</a>');
+    h += '<button class="btn primary" data-sact="cont">' + (ok ? T('DEVAM') : T('ANLADIM')) + '</button></div>';
     return h;
   }
   function norm(s) { return String(s).trim().toUpperCase().replace(/\s+/g, ' ').replace(/\s*=\s*/g, '=').replace(/\/+$/, ''); }
@@ -693,7 +710,7 @@
       var g = (first ? 10 : 5) + (SES.combo >= 5 ? 2 : 0); SES.xp += g; st.gain = g; SES.ok++;
       qEvent('combo', SES.combo, true); if (it.q.t === 'type') { qEvent('typed', 1); S.stats.typed++; }
       if (SES.mode === 'review') { qEvent('review', 1); S.stats.reviewQs++; }
-      if ([3, 5, 10, 15, 20].indexOf(SES.combo) >= 0) { setTimeout(function () { SFX.combo(); toast('🔥', SES ? SES.combo + ' üst üste doğru!' : ''); }, 250); }
+      if ([3, 5, 10, 15, 20].indexOf(SES.combo) >= 0) { setTimeout(function () { SFX.combo(); toast('🔥', SES ? SES.combo + T(' üst üste doğru!') : ''); }, 250); }
       SFX.ok(); haptic('success');
     } else {
       SES.combo = 0; SES.wrongs++; SES.items.push({ kind: 'q', q: it.q, review: it.review, retry: true });
@@ -721,17 +738,17 @@
       setTimeout(confetti, 120);
     }
     var secs = Math.round((Date.now() - SES.start) / 1000);
-    var title = SES.mode === 'review' ? 'Tekrar tamam!' : acc === 1 ? 'Kusursuz baskı!' : acc >= 0.8 ? 'Katman tamam!' : 'Bitti, aferin!';
+    var title = SES.mode === 'review' ? T('Tekrar tamam!') : acc === 1 ? T('Kusursuz baskı!') : acc >= 0.8 ? T('Katman tamam!') : T('Bitti, aferin!');
     var h = '<div class="l-body"><div class="result"><div class="nz">' + nozi('cheer') + '</div><h2>' + title + '</h2>' +
-      '<p class="muted" style="font-weight:800;margin:0">' + (SES.mode === 'lesson' ? esc(SES.lesson.title) : ids.length + ' soru tekrar edildi') + '</p>' +
-      '<div class="res-grid"><div style="border-color:#ffc53d"><span style="background:#ffc53d">Toplam XP</span><b style="color:#ffc53d" data-count="' + SES.xp + '">⚡0</b></div>' +
-      '<div style="border-color:#3ddc84"><span style="background:#3ddc84">Doğruluk</span><b style="color:#3ddc84">%' + Math.round(acc * 100) + '</b></div>' +
-      '<div style="border-color:#4ea1ff"><span style="background:#4ea1ff">Süre</span><b style="color:#4ea1ff">' + Math.floor(secs / 60) + ':' + pad(secs % 60) + '</b></div></div>';
-    if (SES.streakGrew) h += '<div class="res-note"><span style="font-size:28px">🔥</span><div>Seri ' + curStreak() + ' gün oldu!<div class="muted small">Yarın da gel, zinciri kırma.</div></div></div>';
-    if (SES.maxCombo >= 5) h += '<div class="res-note"><span style="font-size:28px">⚡</span><div>En uzun zincir: ' + SES.maxCombo + ' doğru</div></div>';
-    (SES.newBadges || []).forEach(function (b) { h += '<div class="res-note"><span style="font-size:28px">' + b.ic + '</span><div>Yeni rozet: ' + b.n + '<div class="muted small">' + b.d + '</div></div></div>'; });
-    if (SES.questsReady) h += '<div class="res-note"><span style="font-size:28px">🎁</span><div>' + SES.questsReady + ' görev ödülü seni bekliyor<div class="muted small">Ana sayfada al</div></div></div>';
-    if (SES.mode === 'lesson' && SES.lesson && unitDone(SES.lesson.unit) && !S.chests[SES.lesson.unit.id]) h += '<div class="res-note"><span style="font-size:28px">🧱</span><div>Ünite bitti! Sandığını aç<div class="muted small">Yolun sonunda seni bekliyor</div></div></div>';
+      '<p class="muted" style="font-weight:800;margin:0">' + (SES.mode === 'lesson' ? esc(SES.lesson.title) : ids.length + T(' soru tekrar edildi')) + '</p>' +
+      T('<div class="res-grid"><div style="border-color:#ffc53d"><span style="background:#ffc53d">Toplam XP</span><b style="color:#ffc53d" data-count="') + SES.xp + '">⚡0</b></div>' +
+      T('<div style="border-color:#3ddc84"><span style="background:#3ddc84">Doğruluk</span><b style="color:#3ddc84">') + pct(Math.round(acc * 100)) + '</b></div>' +
+      T('<div style="border-color:#4ea1ff"><span style="background:#4ea1ff">Süre</span><b style="color:#4ea1ff">') + Math.floor(secs / 60) + ':' + pad(secs % 60) + '</b></div></div>';
+    if (SES.streakGrew) h += T('<div class="res-note"><span style="font-size:28px">🔥</span><div>Seri ') + curStreak() + T(' gün oldu!<div class="muted small">Yarın da gel, zinciri kırma.</div></div></div>');
+    if (SES.maxCombo >= 5) h += T('<div class="res-note"><span style="font-size:28px">⚡</span><div>En uzun zincir: ') + SES.maxCombo + T(' doğru</div></div>');
+    (SES.newBadges || []).forEach(function (b) { h += '<div class="res-note"><span style="font-size:28px">' + b.ic + T('</span><div>Yeni rozet: ') + b.n + '<div class="muted small">' + b.d + '</div></div></div>'; });
+    if (SES.questsReady) h += '<div class="res-note"><span style="font-size:28px">🎁</span><div>' + SES.questsReady + T(' görev ödülü seni bekliyor<div class="muted small">Ana sayfada al</div></div></div>');
+    if (SES.mode === 'lesson' && SES.lesson && unitDone(SES.lesson.unit) && !S.chests[SES.lesson.unit.id]) h += T('<div class="res-note"><span style="font-size:28px">🧱</span><div>Ünite bitti! Sandığını aç<div class="muted small">Yolun sonunda seni bekliyor</div></div></div>');
     h += '</div></div><div class="l-foot"><button class="btn primary" data-sact="close">DEVAM</button></div>';
     setTimeout(countUp, 60);
     return h;
@@ -747,21 +764,21 @@
     var q = S.quests.list[i]; if (!q || q.c || qProg(q) < q.g) return;
     q.c = true; S.spools += 10; UI.bump = 'spool'; save(); SFX.chest(); haptic('success');
     var all = S.quests.list.every(function (x) { return x.c; });
-    if (all) { S.spools += 20; save(); rewardModal('cheer', 'Bütün görevler tamam!', '🧵 +30', 'Bugünkü üç görevi de bitirdin. Bonus makara kazandın.'); }
-    else toast('🧵', '+10 makara');
+    if (all) { S.spools += 20; save(); rewardModal('cheer', T('Bütün görevler tamam!'), '🧵 +30', T('Bugünkü üç görevi de bitirdin. Bonus makara kazandın.')); }
+    else toast('🧵', T('+10 makara'));
     render();
   }
   function openChest(uid) {
     var u = UNITS.filter(function (x) { return x.id === uid; })[0];
     if (!u) return;
-    if (S.chests[uid]) { toast('📭', 'Bu sandık zaten açıldı'); return; }
-    if (!unitDone(u)) { toast('🔒', 'Önce ünitedeki bütün dersleri bitir'); return; }
+    if (S.chests[uid]) { toast('📭', T('Bu sandık zaten açıldı')); return; }
+    if (!unitDone(u)) { toast('🔒', T('Önce ünitedeki bütün dersleri bitir')); return; }
     S.chests[uid] = true; S.spools += 30; addXp(20); UI.bump = 'spool'; var nb = checkBadges(); save(); SFX.chest(); haptic('success'); confetti();
-    rewardModal('cheer', u.title + ' basıldı!', '🧵 +30  ⚡ +20', 'Bir üniteyi baştan sona bitirdin.' + (nb.length ? ' Yeni rozet: ' + nb.map(function (b) { return b.ic + ' ' + b.n; }).join(', ') : ''));
+    rewardModal('cheer', u.title + T(' basıldı!'), '🧵 +30  ⚡ +20', T('Bir üniteyi baştan sona bitirdin.') + (nb.length ? T(' Yeni rozet: ') + nb.map(function (b) { return b.ic + ' ' + b.n; }).join(', ') : ''));
     render();
   }
   function rewardModal(mood, title, reward, text) {
-    var m = modal('<div class="nz">' + nozi(mood) + '</div><h3>' + esc(title) + '</h3><div class="reward">' + reward + '</div><p class="muted">' + esc(text) + '</p><button class="btn primary" id="m-ok">SÜPER!</button>');
+    var m = modal('<div class="nz">' + nozi(mood) + '</div><h3>' + esc(title) + '</h3><div class="reward">' + reward + '</div><p class="muted">' + esc(text) + T('</p><button class="btn primary" id="m-ok">SÜPER!</button>'));
     m.querySelector('#m-ok').onclick = closeModal;
   }
 
@@ -786,13 +803,14 @@
     if (ds.act === 'weak') { startReview('weak'); return; }
     if (ds.act === 'refresh') { refreshNews(false); return; }
     if (ds.act === 'sound') { S.sound = !S.sound; save(); if (S.sound) SFX.ok(); render(); return; }
-    if (ds.act === 'buy') { if (S.spools >= 50 && S.freezes < 2) { S.spools -= 50; S.freezes++; save(); SFX.chest(); toast('🧊', 'Seri koruyucu alındı'); render(); } return; }
+    if (ds.act === 'buy') { if (S.spools >= 50 && S.freezes < 2) { S.spools -= 50; S.freezes++; save(); SFX.chest(); toast('🧊', T('Seri koruyucu alındı')); render(); } return; }
     if (ds.seg) { UI.newsSeg = ds.seg; render(); return; }
     if (ds.cat) { UI.refCat = ds.cat; render(); return; }
+    if (ds.lang) { if (ds.lang !== LANG) { S.lang = ds.lang; save(); location.reload(); } return; }
     if (ds.goal) { S.goal = +ds.goal; if (S.quests) S.quests.list.forEach(function (q) { if (q.k === 'xp') q.g = S.goal; }); save(); render(); return; }
     if (ds.act === 'reset') {
-      var m = modal('<div class="nz">' + nozi('sad') + '</div><h3>İlerlemeyi sıfırla?</h3><p class="muted">XP, seri, dersler, rozetler ve tekrar geçmişi silinir. Geri alınamaz.</p><button class="btn danger" id="m-y">EVET, SIFIRLA</button><button class="btn ghost" id="m-n">VAZGEÇ</button>');
-      m.querySelector('#m-y').onclick = function () { var news = S.news, snd = S.sound; S = fresh(); S.news = news; S.sound = snd; save(); closeModal(); render(true); };
+      var m = modal('<div class="nz">' + nozi('sad') + T('</div><h3>İlerlemeyi sıfırla?</h3><p class="muted">XP, seri, dersler, rozetler ve tekrar geçmişi silinir. Geri alınamaz.</p><button class="btn danger" id="m-y">EVET, SIFIRLA</button><button class="btn ghost" id="m-n">VAZGEÇ</button>'));
+      m.querySelector('#m-y').onclick = function () { var news = S.news, snd = S.sound; S = fresh(); S.news = news; S.sound = snd; S.lang = LANG; save(); closeModal(); render(true); };
       m.querySelector('#m-n').onclick = closeModal;
     }
   });
@@ -801,7 +819,7 @@
     var it = SES.items[SES.i];
     if (ds.sact === 'quit') {
       if (!it) { closeSession(); return; }
-      var m = modal('<div class="nz">' + nozi('sad') + '</div><h3>Gidiyor musun?</h3><p class="muted">Bu dersin ilerlemesi kaydedilmez. Cevapladığın sorular tekrar listesine işlendi.</p><button class="btn primary" id="m-n">DEVAM ET</button><button class="btn ghost" id="m-y" style="color:var(--red)">ÇIK</button>');
+      var m = modal('<div class="nz">' + nozi('sad') + T('</div><h3>Gidiyor musun?</h3><p class="muted">Bu dersin ilerlemesi kaydedilmez. Cevapladığın sorular tekrar listesine işlendi.</p><button class="btn primary" id="m-n">DEVAM ET</button><button class="btn ghost" id="m-y" style="color:var(--red)">ÇIK</button>'));
       m.querySelector('#m-y').onclick = function () { closeModal(); closeSession(); };
       m.querySelector('#m-n').onclick = closeModal; return;
     }
