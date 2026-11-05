@@ -1,0 +1,10 @@
+ios/build/
+ios/Payload/
+ios/*.ipa
+ios/*.xcodeproj/
+.DS_Store
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/
+android/local.properties

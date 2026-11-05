@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.diyar.klipperogren'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.diyar.klipperogren'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // Kişisel kullanım için sabit imza anahtarı: güncellemeler eski sürümün üzerine kurulabilsin diye.
+    signingConfigs {
+        release {
+            storeFile file('klipper.keystore')
+            storePassword 'klipperogren'
+            keyAlias 'klipper'
+            keyPassword 'klipperogren'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

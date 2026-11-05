@@ -55,8 +55,9 @@
 
   // ---------- Yerel köprü ----------
   function post(m) { try { if (NATIVE) window.webkit.messageHandlers.native.postMessage(m); } catch (e) {} }
-  function haptic(s) { if (NATIVE) post({ type: 'haptic', style: s }); else if (navigator.vibrate) { try { navigator.vibrate(s === 'error' ? [30, 40, 30] : 10); } catch (e) {} } }
-  function openUrl(u) { if (NATIVE) post({ type: 'open', url: u }); else window.open(u, '_blank', 'noopener'); }
+  var ANDROID = !!window.AndroidBridge;
+  function haptic(s) { if (ANDROID) { try { window.AndroidBridge.haptic(s); } catch (e) {} return; } if (NATIVE) post({ type: 'haptic', style: s }); else if (navigator.vibrate) { try { navigator.vibrate(s === 'error' ? [30, 40, 30] : 10); } catch (e) {} } }
+  function openUrl(u) { if (ANDROID) { try { window.AndroidBridge.open(u); } catch (e) {} return; } if (NATIVE) post({ type: 'open', url: u }); else window.open(u, '_blank', 'noopener'); }
 
   // ---------- Kayıt ----------
   function save() { S.savedAt = Date.now(); var str = JSON.stringify(S); try { localStorage.setItem(KEY, str); } catch (e) {} post({ type: 'save', data: str }); }
@@ -591,7 +592,19 @@
     lessonEl = document.createElement('div'); lessonEl.className = 'lesson'; lessonEl.style.setProperty('--uc', SES.color);
     document.body.appendChild(lessonEl); prepItem(); renderSession(); audio();
   }
-  function closeSession() { if (lessonEl) lessonEl.remove(); lessonEl = null; SES = null; render(true); }
+  function closeSession() {
+    if (lessonEl) lessonEl.remove(); lessonEl = null; SES = null;
+    render(); // kaydırma konumu korunur
+    if (UI.tab === 'path') scrollToCurrent(true);
+  }
+  // Yolda sıradaki derse kaydır
+  function scrollToCurrent(smooth) {
+    var scr = document.getElementById('scr'), el = document.querySelector('.node.cur');
+    if (!scr || !el) return;
+    var r = el.getBoundingClientRect(), sr = scr.getBoundingClientRect();
+    var top = scr.scrollTop + r.top - sr.top - scr.clientHeight / 2 + r.height / 2;
+    try { scr.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' }); } catch (e) { scr.scrollTop = Math.max(0, top); }
+  }
 
   function prepItem() {
     var it = SES.items[SES.i]; if (!it || it.kind !== 'q') return;
@@ -855,7 +868,14 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden && !SES) { render(); autoNews(); } });
   function autoNews() { var c = S.news.cache; if (!c || Date.now() - c.at > 6 * 3600000) refreshNews(true); }
 
-  window.__klipperApp = { state: function () { return S; }, refreshNews: refreshNews, cur: function () { return SES && SES.items[SES.i]; } };
+  // Android geri tuşu: önce açık pencereyi/dersi kapat, sonra ana sekmeye dön
+  function back() {
+    if (document.getElementById('modal')) { closeModal(); return true; }
+    if (SES) { var q = lessonEl && lessonEl.querySelector('[data-sact="quit"]'); if (q) q.click(); return true; }
+    if (UI.tab !== 'path') { UI.tab = 'path'; UI.prevSeen = null; render(true); return true; }
+    return false;
+  }
+  window.__klipperApp = { state: function () { return S; }, refreshNews: refreshNews, cur: function () { return SES && SES.items[SES.i]; }, back: back };
   render(true);
   setTimeout(autoNews, 900);
 })();

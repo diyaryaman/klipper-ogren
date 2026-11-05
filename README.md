@@ -9,12 +9,15 @@ Klipper'ı (3D yazıcı firmware'i) Duolingo tarzında, kolaydan zora öğreten 
 - **XP, günlük seri, günlük hedef** ve "zayıf noktalar" listesi.
 - **Yenilikler sekmesi:** Klipper'ın GitHub deposundan config değişikliklerini, son commit'leri ve son sürümü çeker. Wiki'ye yeni bir komut eklenirse ya da biri kaldırılırsa gösterir.
 - **Rehber:** Türkçe açıklamalı komut listesi, arama ve wiki linkleri.
+- **İki dil:** Profil → Ayarlar'dan Türkçe / English seçilir. Bütün dersler, rehber ve arayüz İngilizceye çevrilir; ilerleme ortak kalır.
 
 ## Klasörler
 
 ```
 web/                      Uygulamanın kendisi (HTML/JS, internet gerekmez)
-  content1-3.js             Dersler ve sorular (yeni soru eklemek için burayı düzenle)
+  content1-3.js             Dersler ve sorular (Türkçe; yeni soru eklemek için burayı düzenle)
+  content1-3_en.js          Aynı dersler İngilizce (aynı id ve yapı)
+  i18n.js, reference_en.js  Arayüz ve rehber çevirileri
   reference.js              Rehber sekmesindeki komutlar
   snapshot.js               Uygulama hazırlandığında wiki'deki komut listesi
 ios/                      iPhone kabuğu (SwiftUI + WKWebView)
